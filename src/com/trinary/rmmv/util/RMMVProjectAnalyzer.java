@@ -4,10 +4,18 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.nio.file.Files;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+
+import javax.script.Bindings;
+import javax.script.ScriptEngine;
+import javax.script.ScriptEngineManager;
+import javax.script.ScriptException;
 
 import org.apache.commons.codec.binary.Base64;
 
@@ -15,6 +23,7 @@ import com.trinary.rmmv.client.PluginVersionClient;
 import com.trinary.rmmv.client.RMMVClientConfig;
 import com.trinary.rmmv.util.types.AmbiguousPluginRO;
 import com.trinary.rmmv.util.types.OutOfDatePluginRO;
+import com.trinary.rmmv.util.types.PluginDescriptor;
 import com.trinary.rmmv.util.types.ProjectRO;
 import com.trinary.rmmv.util.types.UnknownPluginRO;
 import com.trinary.rpgmaker.ro.PluginRO;
@@ -49,15 +58,44 @@ public class RMMVProjectAnalyzer {
 		return projects;
 	}
 	
+	@SuppressWarnings("unchecked")
 	public ProjectRO analyzeProject(String projectDirectory) {
 		File rootDir = new File(projectDirectory);
-		File dir = new File(projectDirectory + "/js/plugins");
+		File pluginsDescriptorFile = new File(projectDirectory + "/js/plugins.js");
+		File pluginsDir = new File(projectDirectory + "/js/plugins");
 		
-		if (!dir.isDirectory()) {
+		if (!pluginsDescriptorFile.exists() || !pluginsDescriptorFile.isFile()) {
 			return null;
 		}
 		
-		File[] files = dir.listFiles();
+		Map<String, PluginDescriptor> pluginDescriptors = new HashMap<String, PluginDescriptor>();
+		try {
+			byte[] encoded = Files.readAllBytes(pluginsDescriptorFile.toPath());
+			String pluginDescriptorScript = new String(encoded);
+			ScriptEngineManager manager = new ScriptEngineManager();
+			ScriptEngine engine = manager.getEngineByName("nashorn");
+			Bindings vars = engine.createBindings();
+			engine.eval(pluginDescriptorScript, vars);
+			
+			Map<String, Object> list = (Map<String, Object>)vars.get("$plugins");
+			if (list != null) {
+				for (Object element : list.values()) {
+					PluginDescriptor descriptor = new PluginDescriptor((Map<String, Object>)element);
+					pluginDescriptors.put(descriptor.getName() + ".js", descriptor);
+					System.out.println("DESCRIPTOR: " + descriptor);
+				}
+			}
+		} catch (IOException e) {
+			e.printStackTrace();
+		} catch (ScriptException e) {
+			e.printStackTrace();
+		}
+		
+		if (!pluginsDir.isDirectory()) {
+			return null;
+		}
+		
+		File[] files = pluginsDir.listFiles();
 		List<PluginRO> plugins = new ArrayList<PluginRO>();
 		
 		for (File file : files) {
@@ -75,6 +113,7 @@ public class RMMVProjectAnalyzer {
 		project.setName(rootDir.getName());
 		project.setPath(rootDir.getAbsolutePath());
 		project.setPlugins(plugins);
+		project.setPluginDescriptors(pluginDescriptors);
 		
 		return project;
 	}
