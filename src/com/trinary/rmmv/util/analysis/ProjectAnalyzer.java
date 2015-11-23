@@ -1,4 +1,4 @@
-package com.trinary.rmmv.util;
+package com.trinary.rmmv.util.analysis;
 
 import java.io.File;
 import java.io.FileInputStream;
@@ -18,24 +18,35 @@ import javax.script.ScriptEngineManager;
 import javax.script.ScriptException;
 
 import org.apache.commons.codec.binary.Base64;
+import org.codehaus.jackson.map.ObjectMapper;
+import org.codehaus.jackson.map.SerializationConfig.Feature;
 
 import com.trinary.rmmv.client.PluginVersionClient;
 import com.trinary.rmmv.client.RMMVClientConfig;
+import com.trinary.rmmv.util.analysis.types.PluginDescriptor;
+import com.trinary.rmmv.util.analysis.types.PluginMetaData;
+import com.trinary.rmmv.util.analysis.types.PluginMetaDataLocale;
 import com.trinary.rmmv.util.types.AmbiguousPluginRO;
 import com.trinary.rmmv.util.types.OutOfDatePluginRO;
-import com.trinary.rmmv.util.types.PluginDescriptor;
 import com.trinary.rmmv.util.types.ProjectRO;
 import com.trinary.rmmv.util.types.UnknownPluginRO;
 import com.trinary.rpgmaker.ro.PluginRO;
 
-public class RMMVProjectAnalyzer {
+public class ProjectAnalyzer {
 	protected RMMVClientConfig config;
+	protected PluginAnalyzer pluginAnalyzer = new PluginAnalyzer();
+	protected ObjectMapper mapper = new ObjectMapper();
 	
-	public RMMVProjectAnalyzer(RMMVClientConfig config) {
+	public ProjectAnalyzer(RMMVClientConfig config) {
 		this.config = config;
+		mapper.enable(Feature.INDENT_OUTPUT);
 	}
 	
 	public List<ProjectRO> analyzeWorkspace(String rootDirectory) {
+		return analyzeWorkspace(rootDirectory, PluginMetaDataLocale.EN);
+	}
+	
+	public List<ProjectRO> analyzeWorkspace(String rootDirectory, PluginMetaDataLocale locale) {
 		File dir = new File(rootDirectory);
 		
 		if (!dir.isDirectory()) {
@@ -47,7 +58,7 @@ public class RMMVProjectAnalyzer {
 		
 		for (File file : files) {
 			if (file.isDirectory()) {
-				ProjectRO project = analyzeProject(file.getAbsolutePath());
+				ProjectRO project = analyzeProject(file.getAbsolutePath(), locale);
 				
 				if (project != null) {
 					projects.add(project);
@@ -58,11 +69,30 @@ public class RMMVProjectAnalyzer {
 		return projects;
 	}
 	
-	@SuppressWarnings("unchecked")
 	public ProjectRO analyzeProject(String projectDirectory) {
+		return analyzeProject(projectDirectory, PluginMetaDataLocale.EN);
+	}
+	
+	public ProjectRO analyzeProject(String projectDirectory, PluginMetaDataLocale locale) {
 		File rootDir = new File(projectDirectory);
+		
+		Map<String, PluginDescriptor> pluginDescriptors = getPluginDescriptors(projectDirectory);
+		Map<String, PluginDescriptor> defaultDescriptors = getDefaultPluginDescriptors(projectDirectory, locale);
+		List<PluginRO> plugins = getPlugins(projectDirectory);
+
+		ProjectRO project = new ProjectRO();
+		project.setName(rootDir.getName());
+		project.setPath(rootDir.getAbsolutePath());
+		project.setPlugins(plugins);
+		project.setPluginDescriptors(pluginDescriptors);
+		project.setDefaultDescriptors(defaultDescriptors);
+		
+		return project;
+	}
+	
+	@SuppressWarnings("unchecked")
+	public Map<String, PluginDescriptor> getPluginDescriptors(String projectDirectory) {
 		File pluginsDescriptorFile = new File(projectDirectory + "/js/plugins.js");
-		File pluginsDir = new File(projectDirectory + "/js/plugins");
 		
 		if (!pluginsDescriptorFile.exists() || !pluginsDescriptorFile.isFile()) {
 			return null;
@@ -82,7 +112,6 @@ public class RMMVProjectAnalyzer {
 				for (Object element : list.values()) {
 					PluginDescriptor descriptor = new PluginDescriptor((Map<String, Object>)element);
 					pluginDescriptors.put(descriptor.getName() + ".js", descriptor);
-					System.out.println("DESCRIPTOR: " + descriptor);
 				}
 			}
 		} catch (IOException e) {
@@ -90,6 +119,32 @@ public class RMMVProjectAnalyzer {
 		} catch (ScriptException e) {
 			e.printStackTrace();
 		}
+		
+		return pluginDescriptors;
+	}
+	
+	public Map<String, PluginDescriptor> getDefaultPluginDescriptors(String projectDirectory, PluginMetaDataLocale locale) {
+		File pluginsDir = new File(projectDirectory + "/js/plugins");
+		
+		if (!pluginsDir.isDirectory()) {
+			return null;
+		}
+		
+		File[] files = pluginsDir.listFiles();
+		Map<String, PluginDescriptor> descriptors = new HashMap<String, PluginDescriptor>();
+		
+		for (File file : files) {
+			if (file.isFile() && file.getName().endsWith(".js")) {
+				PluginMetaData metadata = pluginAnalyzer.getPluginMetaData(file, locale);
+				descriptors.put(file.getName(), metadata.createPluginDescriptor());
+			}
+		}
+		
+		return descriptors;
+	}
+		
+	public List<PluginRO> getPlugins(String projectDirectory) {
+		File pluginsDir = new File(projectDirectory + "/js/plugins");
 		
 		if (!pluginsDir.isDirectory()) {
 			return null;
@@ -109,13 +164,7 @@ public class RMMVProjectAnalyzer {
 			}
 		}
 		
-		ProjectRO project = new ProjectRO();
-		project.setName(rootDir.getName());
-		project.setPath(rootDir.getAbsolutePath());
-		project.setPlugins(plugins);
-		project.setPluginDescriptors(pluginDescriptors);
-		
-		return project;
+		return plugins;
 	}
 	
 	public PluginRO identifyFile(File file) {

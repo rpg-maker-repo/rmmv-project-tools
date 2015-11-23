@@ -1,5 +1,6 @@
-package com.trinary.rmmv.util.types;
+package com.trinary.rmmv.util.analysis.types;
 
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Map.Entry;
 
@@ -8,6 +9,10 @@ public class PluginDescriptor {
 	protected Boolean status;
 	protected String description;
 	protected Map<String, String> parameters;
+	
+	public PluginDescriptor() {
+		parameters = new LinkedHashMap<String, String>();
+	}
 	
 	@SuppressWarnings("unchecked")
 	public PluginDescriptor(Map<String, Object> jsObject) {
