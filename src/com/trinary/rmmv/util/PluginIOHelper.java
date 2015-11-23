@@ -12,6 +12,7 @@ import org.codehaus.jackson.map.ObjectMapper;
 import com.trinary.rmmv.client.PluginClient;
 import com.trinary.rmmv.client.PluginVersionClient;
 import com.trinary.rmmv.client.RMMVClientConfig;
+import com.trinary.rmmv.util.analysis.ProjectAnalyzer;
 import com.trinary.rmmv.util.analysis.types.PluginDescriptor;
 import com.trinary.rmmv.util.types.ProjectRO;
 import com.trinary.rpgmaker.ro.PluginRO;
@@ -19,24 +20,31 @@ import com.trinary.rpgmaker.ro.PluginRO;
 public class PluginIOHelper {
 	protected PluginClient pluginClient;
 	protected PluginVersionClient versionClient;
+	protected ProjectAnalyzer projectAnalyzer;
 	protected ObjectMapper mapper = new ObjectMapper();
 	
 	public PluginIOHelper(RMMVClientConfig config) {
 		versionClient = new PluginVersionClient(config);
 		pluginClient = new PluginClient(config);
-		//mapper.enable(Feature.INDENT_OUTPUT);
+		projectAnalyzer = new ProjectAnalyzer(config);
 	}
 	
-	public void deletePlugin(PluginRO plugin, String location) {
+	public void deletePlugin(ProjectRO project, PluginRO plugin) {
 		System.out.println("Deleting    " + plugin.getFilename() + " (" + plugin.getVersion() + ")");
 		
+		String location = project.getPath() + "/js/plugins/";
 		File file = new File(location + plugin.getFilename());
 		file.delete();
 	}
 	
-	public void storePlugin(PluginRO plugin, String location) {
+	public void storePlugin(ProjectRO project, PluginRO plugin) throws IOException {
+		storePlugin(project, plugin, true);
+	}
+	
+	public void storePlugin(ProjectRO project, PluginRO plugin, Boolean enableAfterStore) throws IOException {
 		System.out.println("Downloading " + plugin.getFilename() + " (" + plugin.getVersion() + ")");
 		
+		String location = project.getPath() + "/js/plugins/";
 		String script = null;
 		try {
 			script = versionClient.getScript(plugin);
@@ -45,17 +53,21 @@ public class PluginIOHelper {
 			return;
 		}
 	
-		try {
-			FileWriter writer = new FileWriter(location + plugin.getFilename());
-			writer.write(script);
-			writer.close();
-		} catch (IOException e1) {
-			e1.printStackTrace();
-			return;
+		FileWriter writer = new FileWriter(location + plugin.getFilename());
+		writer.write(script);
+		writer.close();
+		
+		if (enableAfterStore) {
+			project = projectAnalyzer.analyzeProject(project.getPath());
+			enablePlugin(project, plugin);
 		}
 	}
 	
-	public void storeDependencies(PluginRO plugin, String location) {
+	public void storeDependencies(ProjectRO project, PluginRO plugin) throws IOException {
+		storeDependencies(project, plugin, true);
+	}
+	
+	public void storeDependencies(ProjectRO project, PluginRO plugin, Boolean enableAfterStore) throws IOException {
 		List<PluginRO> dependencies;
 		try {
 			dependencies = versionClient.getDependencies(plugin);
@@ -65,8 +77,8 @@ public class PluginIOHelper {
 		}
 		
 		for (PluginRO dependency : dependencies) {
-			storePlugin(dependency, location);
-			storeDependencies(dependency, location);
+			storePlugin(project, dependency, enableAfterStore);
+			storeDependencies(project, dependency, enableAfterStore);
 		}
 	}
 	
